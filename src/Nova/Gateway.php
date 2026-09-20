@@ -2,10 +2,12 @@
 
 namespace NovaMcp\Nova;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Laravel\Nova\Actions\DestructiveAction;
 use Laravel\Nova\Contracts\RelatableField;
 use Laravel\Nova\Fields\BelongsTo;
 use Laravel\Nova\Fields\BelongsToMany;
@@ -35,7 +37,7 @@ class Gateway
 {
     public function __construct(private RequestContext $context, private ResourceRegistry $resources, private FieldRegistry $fields) {}
 
-    public function execute(string $operation, array $arguments): array
+    public function execute(string $operation, array $arguments, ?\Closure $onAction = null): array
     {
         $rules = [
             'resource' => ['required', 'string', 'max:160', 'regex:/^[a-zA-Z0-9_-]+$/D'],
@@ -94,7 +96,7 @@ class Gateway
             $request->query->set('action', $a['action']);
         }
 
-        return $this->context->run($request, function () use ($operation, $a, $request) {
+        return $this->context->run($request, function () use ($operation, $a, $request, $onAction) {
             if ($operation === 'resources') {
                 return ['resources' => array_map(function ($class) {
                     $resourceRequest = $this->context->make(ResourceIndexRequest::class, $class::uriKey());
@@ -109,7 +111,7 @@ class Gateway
                 'list' => $this->listing($request, $class, $a),
                 'get' => $this->read($request, $class),
                 'create', 'update', 'delete', 'restore' => $this->mutate($operation, $request, $class, $a),
-                'actions', 'run_action' => $this->actions($operation, $request, $class, $a),
+                'actions', 'run_action' => $this->actions($operation, $request, $class, $a, $onAction),
                 'relationships' => $this->relationships($request, $class, $a),
             };
         });
@@ -270,7 +272,7 @@ class Gateway
         return ['status' => 'completed', 'id' => (string) ($payload['id'] ?? $a['id'] ?? '')];
     }
 
-    private function actions(string $operation, ActionRequest $request, string $class, array $a): array
+    private function actions(string $operation, ActionRequest $request, string $class, array $a, ?\Closure $onAction): array
     {
         $models = [];
         foreach ($a['ids'] ?? [] as $id) {
@@ -278,6 +280,9 @@ class Gateway
         }
         $resource = count($models) === 1 ? $models[0] : new $class($class::newModel());
         $actions = $resource->resolveActions($request)->filter(function ($action) use ($models, $request) {
+            if (! app(ActionExposure::class)->allows($action, $request)) {
+                return false;
+            }
             if (! $action->authorizedToSee($request) || ($models === [] && ! $action->isStandalone())) {
                 return false;
             }
@@ -297,11 +302,17 @@ class Gateway
                     'key' => $action->uriKey(), 'name' => $action->name(),
                     'fields' => (object) $fields,
                     'schema' => app(ValidationSchema::class)->object($fields, false),
+                    'destructive' => $action instanceof DestructiveAction,
+                    'queued' => $action instanceof ShouldQueue,
+                    'standalone' => $action->isStandalone(), 'sole' => (bool) $action->sole,
+                    'confirm_text' => ActionResult::text($action->confirmText, 500),
                 ];
             })->values()->all()];
         }
         $action = $actions->first(fn ($action) => $action->uriKey() === $a['action']);
         abort_unless($action, 404, 'Action unavailable.');
+        // Report the resolved key and target count, never unvalidated client input.
+        $onAction?->__invoke(['action' => $action->uriKey(), 'targets' => count($a['ids'] ?? [])]);
         $input = $a['fields'] ?? [];
         $request->merge($input);
         $fields = FieldCollection::make($action->fields($request))->authorized($request)->applyDependsOn($request);
@@ -310,11 +321,8 @@ class Gateway
         $request->query->set('action', $a['action']);
         // Nova handles validation, fillForAction, batching, queues, and action events.
         $response = app(ActionController::class)->store($request);
-        if ($response instanceof JsonResponse) {
-            $response = $response->getData(true);
-        }
 
-        return ['result' => $response];
+        return app(ActionResult::class)->format($request->action(), $response);
     }
 
     private function relationFields(\Laravel\Nova\Resource $resource, NovaRequest $request): array

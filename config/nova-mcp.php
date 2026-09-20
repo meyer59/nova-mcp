@@ -16,6 +16,22 @@ return [
     // Example: [App\Nova\User::class]
     'excluded_resources' => [],
 
+    // Empty = every action Nova authorizes. Entries match subclasses too.
+    'included_actions' => [],
+
+    // Always excluded, including subclasses, even when included above.
+    // Example: [App\Nova\Actions\ImpersonateUser::class]
+    'excluded_actions' => [],
+
+    // 'status' returns an outcome and bounded application message only.
+    // 'full' returns Nova's raw response, including URLs and payloads.
+    // This does not prevent an action's side effects or redact secrets in messages.
+    'action_results' => 'status',
+
+    // Exact action classes allowed to return full results in status mode.
+    // Only list actions whose entire response is suitable for an MCP client.
+    'full_result_actions' => [],
+
     'auth' => [
         // null = use the same user provider Nova already uses. If Nova logs in
         // App\Models\UserNova, tokens belong to those users. Normally leave null.

@@ -125,7 +125,7 @@ class ValidationSchema
             } elseif ($name === 'in') {
                 $enums[] = str_getcsv($parameters, ',', '"', '\\');
             } elseif (! in_array($name, ['required', 'nullable', 'sometimes', 'bail', 'string', 'numeric', 'integer', 'boolean'], true)) {
-                $hints[] = str_starts_with($name, 'required_') || str_starts_with($name, 'prohibited_') || str_starts_with($name, 'exclude_') ? 'conditional' : 'server';
+                $hints[] = preg_match('/_(?:if|unless|with.*)$/D', $name) || str_starts_with($name, 'required_') || str_starts_with($name, 'prohibited_') || str_starts_with($name, 'exclude_') ? 'conditional' : 'server';
             }
         }
         foreach ($enums as $enum) {

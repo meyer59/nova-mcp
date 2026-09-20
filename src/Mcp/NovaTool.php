@@ -9,6 +9,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
 use NovaMcp\Nova\Gateway;
+use NovaMcp\NovaMcp;
 use NovaMcp\Support\Audit;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
@@ -31,7 +32,7 @@ class NovaTool extends Tool
 
     public function shouldRegister(): bool
     {
-        return request()->attributes->get('nova-mcp.token')?->allows($this->ability()) ?? false;
+        return NovaMcp::token()?->allows($this->ability()) ?? false;
     }
 
     public function toArray(): array
@@ -84,7 +85,7 @@ class NovaTool extends Tool
 
     public function handle(Request $request): Response
     {
-        $token = request()->attributes->get('nova-mcp.token');
+        $token = NovaMcp::token();
         if (! $token || ! $token->allows($this->ability())) {
             return $this->error('forbidden', 'This token does not allow this operation.');
         }
@@ -93,10 +94,13 @@ class NovaTool extends Tool
         $audit = app(Audit::class);
         $meta = ['token_id' => $token->id, 'tool' => $this->name];
         try {
-            if ($mutation) {
+            if ($mutation && $this->operation !== 'run_action') {
                 $audit->record('mutation.started', $meta);
             }
-            $result = app(Gateway::class)->execute($this->operation, $request->all());
+            $result = app(Gateway::class)->execute($this->operation, $request->all(), function (array $actionMeta) use ($audit, &$meta) {
+                $meta += $actionMeta;
+                $audit->record('mutation.started', $meta);
+            });
             if ($mutation) {
                 $audit->record('mutation.completed', $meta);
             }
@@ -104,6 +108,8 @@ class NovaTool extends Tool
             $outcome = 'completed';
 
             return Response::json($result);
+        } catch (ActionFailed $e) {
+            return Response::error(json_encode(['code' => 'action_failed'] + $e->result, JSON_THROW_ON_ERROR));
         } catch (ValidationFailure $e) {
             return $this->error('validation', 'Validation failed.', $e->fields);
         } catch (ValidationException $e) {

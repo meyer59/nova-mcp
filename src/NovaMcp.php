@@ -4,6 +4,7 @@ namespace NovaMcp;
 
 use Closure;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use NovaMcp\Auth\ProviderResolver;
@@ -12,6 +13,18 @@ use NovaMcp\Support\Audit;
 
 class NovaMcp
 {
+    public static function token(?Request $request = null): ?Token
+    {
+        $token = ($request ?? request())->attributes->get('nova-mcp.token');
+
+        return $token instanceof Token ? $token : null;
+    }
+
+    public static function isMcpRequest(?Request $request = null): bool
+    {
+        return self::token($request) !== null;
+    }
+
     public static function manageTokensUsing(Closure $callback): void
     {
         Gate::define('manageNovaMcpTokens', $callback);

@@ -8,6 +8,8 @@ A Laravel Nova package that connects AI assistants to your application through t
 
 If Nova MCP is useful to you, please consider [giving it a star on GitHub](https://github.com/meyer59/nova-mcp). It helps others discover the package.
 
+**Upgrading to v0.2.0:** action results now default to a restricted status response, including with older published configs. See [Actions and sensitive results](#actions-and-sensitive-results) and the [changelog](CHANGELOG.md) before upgrading clients that consume raw action responses.
+
 ## Quick start
 
 Start with an application that already has a licensed Nova installation. **Laravel 12 is supported; Laravel 13 support is experimental.** See [compatibility](#compatibility) for PHP and Nova requirements.
@@ -188,6 +190,100 @@ IDs are strings. Examples of tool arguments:
 Call `nova.describe` with an `id` to obtain that record's update fields. Descriptions are always computed in the current user's context. Custom field validation still comes from Nova at execution time; schemas describe accepted shapes rather than attempting to translate arbitrary Laravel validation rules.
 
 Filters are an object mapping the filter keys returned by `describe` to values. `list` accepts `lens` using an authorized lens key. Pages default to 25 records and are capped at 100. Responses have `has_more`, not an unrestricted count. Actions accept at most 100 explicitly selected IDs; an omitted `ids` argument selects standalone actions only. There is no implicit “all records” action execution.
+
+## Actions and sensitive results
+
+Actions run application code and may mint credentials, reset passwords, impersonate users, send messages, or export data. Their results reach the MCP client and may enter an LLM context, transcript or client log. Treat any returned login link, token or signed download URL as disclosed to that client.
+
+Keep tokens read-only unless the client needs actions. The token UI already defaults to Read only. Exclude impersonation/login-as, credential issuance, password-reset, export-link and other signed-URL actions unless they were specifically designed for MCP:
+
+```php
+// config/nova-mcp.php
+'included_actions' => [], // All actions Nova authorizes, unless excluded below.
+'excluded_actions' => [
+    App\Nova\Actions\ImpersonateUser::class,
+    App\Nova\Actions\CreateApiToken::class,
+],
+```
+
+Both lists match subclasses. Exclusion always wins; a non-array list exposes no actions. Restrictions apply to discovery and execution, including standalone actions. Excluded actions have the same unavailable error response as unknown action keys, and their visibility/execution authorization callbacks are skipped. Nova's normal policies and action authorization still apply to every exposed action.
+
+### Control results
+
+**Upgrade from v0.1.6 and earlier:** v0.2.0 changes the default `nova.run_action` result. Previously it returned Nova's response verbatim. It now uses `action_results => 'status'`, including when an older published config has no such key. Review consumers that expected redirects or custom response fields. After editing config, rebuild your application's configuration cache if you use one.
+
+```php
+'action_results' => 'status',
+'full_result_actions' => [
+    // App\Nova\Actions\ReturnPublicReport::class,
+],
+```
+
+In status mode, a successful tool result looks like:
+
+```json
+{"result":{"status":"completed","message":"Done","type":"message"}}
+```
+
+The type is `message`, `danger`, `redirect`, `visit`, `download`, `modal` or `none`. Navigation URLs, paths, query data, download names/links, modal data, events and arbitrary response fields are omitted. Application messages are tag-stripped, stripped of control characters and limited to 1,000 characters.
+
+A Nova danger response becomes an MCP error (`isError: true`), whose text contains:
+
+```json
+{"code":"action_failed","status":"failed","message":"Unable to complete this action.","type":"danger"}
+```
+
+A `ShouldQueue` action reports `{"result":{"status":"queued"}}` after Nova dispatches it. This does not confirm job completion. A synchronous queue driver can execute immediately.
+
+**Status mode does not stop side effects or redact secrets embedded in application messages or confirmation text.** Use action exclusions to prevent sensitive operations from running. Never put credentials or signed URLs in messages or confirmation text intended for MCP clients.
+
+To restore the previous raw response behavior globally, explicitly set `'action_results' => 'full'`. For a narrower exception, list exact action classes in `full_result_actions`; subclasses do not inherit this opt-in. Full mode preserves the raw Nova response, including its original danger response shape, rather than converting it to `action_failed`. Neither option grants permission to execute an action. Invalid result-mode settings fall back to status mode unless the specific action has an explicit full-result exception.
+
+### Detect MCP in application code
+
+Use the public helpers instead of depending on request attributes:
+
+```php
+use NovaMcp\NovaMcp;
+
+// For an action or field that should be available only in Nova's browser UI:
+->canSee(fn ($request) => ! NovaMcp::isMcpRequest($request))
+
+// The current authenticated MCP token, or null outside an MCP request:
+$token = NovaMcp::token(); // An explicit Request argument is also supported.
+```
+
+Add the restriction to your existing conditions when an action or field already has a `canSee` callback. The helpers work in resource, field and action callbacks, on both the outer HTTP request and inner Nova requests. They detect a package Token instance; they do not authenticate requests themselves or grant authorization. The existing raw attribute remains available for compatibility.
+
+For an action class override, retain the existing authorization:
+
+```php
+public function authorizedToRun(\Illuminate\Http\Request $request, $model)
+{
+    return ! \NovaMcp\NovaMcp::isMcpRequest($request)
+        && parent::authorizedToRun($request, $model);
+}
+```
+
+In a model policy's existing `runAction` method, add the MCP restriction before the application's normal decision:
+
+```php
+public function runAction($user, $model, $action): bool
+{
+    if (\NovaMcp\NovaMcp::isMcpRequest()
+        && $action instanceof \App\Nova\Actions\ImpersonateUser) {
+        return false;
+    }
+
+    return $this->update($user, $model); // Keep your existing policy decision here.
+}
+```
+
+Nova uses `runDestructiveAction` / `delete` for destructive actions. Existing Gate overrides and Nova's authorization precedence still apply; use `excluded_actions` for a package-level restriction independent of those overrides. [Nova action authorization](https://nova.laravel.com/docs/v5/actions/registering-actions#authorization)
+
+Action discovery also includes `destructive`, `queued`, `standalone`, `sole` and `confirm_text` (tag-stripped and capped at 500 characters). Clients can use these hints when asking a person to confirm; they do not introduce a server-side confirmation step.
+
+Action execution audit events include the resolved action key and target count, without target IDs or field values. Attempts to execute an excluded action produce an `action.hidden` debug event when auditing is enabled and the configured logging channel records debug messages.
 
 ## Production settings
 
