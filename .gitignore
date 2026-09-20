@@ -1,0 +1,13 @@
+/vendor/
+/node_modules/
+/composer.lock
+/composer.local.*
+/.phpunit.cache/
+/.phpstan/
+/tests/runtime/
+/.env
+/.env.*
+!/.env.example
+/auth.json
+/*.pem
+/*.key

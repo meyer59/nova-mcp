@@ -1,0 +1,1 @@
+{"name":"nova-mcp-access","private":true,"scripts":{"build":"node --check resources/js/tool.js && node scripts/build.mjs"}}
