@@ -8,9 +8,13 @@ return [
     // Keep secrets and user-specific information out of this shared text.
     'instructions' => '',
 
-    // All registered resources, still subject to Nova authorization.
-    'resources' => '*',
-    // 'resources' => [App\Nova\Donation::class, App\Nova\Campaign::class],
+    // Empty = all registered resources. Otherwise, only these Nova resource classes.
+    // Example: [App\Nova\Donation::class, App\Nova\Campaign::class]
+    'included_resources' => [],
+
+    // These Nova resource classes are always excluded, even when included above.
+    // Example: [App\Nova\User::class]
+    'excluded_resources' => [],
 
     'auth' => [
         // null = use the same user provider Nova already uses. If Nova logs in

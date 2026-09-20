@@ -9,9 +9,18 @@ class ResourceRegistry
 {
     public function all(NovaRequest $request): array
     {
-        $exposure = config('nova-mcp.resources', '*');
+        $included = config('nova-mcp.included_resources', []);
+        $excluded = config('nova-mcp.excluded_resources', []);
+        // Preserve restrictions from previously published configuration, including [] = none.
+        $legacy = config('nova-mcp.resources', '*');
 
-        return array_values(array_filter(Nova::$resources, fn ($class) => ($exposure === '*' || (is_array($exposure) && in_array($class, $exposure, true)))
+        if (! is_array($included) || ! is_array($excluded)) {
+            return [];
+        }
+
+        return array_values(array_filter(Nova::$resources, fn ($class) => ! in_array($class, $excluded, true)
+            && ($included === [] || in_array($class, $included, true))
+            && ($legacy === '*' || (is_array($legacy) && in_array($class, $legacy, true)))
             && $class::authorizedToViewAny($request)
         ));
     }

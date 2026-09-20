@@ -117,12 +117,24 @@ Resource descriptions are read on each discovery request. After changing applica
 
 For example, an admin with a read-only token can read data, but cannot change or delete it. A full-access token cannot bypass a Nova policy.
 
-All registered Nova resources are enabled by default. To expose only selected resources:
+Use the adjacent include and exclude lists in [the configuration file](config/nova-mcp.php). Leave the include list empty to expose all registered Nova resources except the excluded ones:
 
 ```php
 // config/nova-mcp.php
-'resources' => [App\Nova\Donation::class, App\Nova\Campaign::class],
+'included_resources' => [],
+'excluded_resources' => [App\Nova\User::class],
 ```
+
+Fill the include list to expose only selected resources. **Exclusions always win**, even if a resource appears in both lists:
+
+```php
+'included_resources' => [App\Nova\Donation::class, App\Nova\Campaign::class],
+'excluded_resources' => [App\Nova\Campaign::class],
+```
+
+Here, only `Donation` is available, subject to Nova permissions and token abilities. Excluded resources are also unavailable through direct tool calls and relationships. After editing cached configuration, run `php artisan config:cache`.
+
+Existing installations using `resources` remain supported: `'*'` allows all, an array limits exposure, and `[]` disables all resources. That legacy setting remains an additional restriction. To migrate a non-empty legacy allowlist, move its classes into `included_resources` and remove the `resources` key.
 
 Token permissions are `read`, `create`, `update`, `delete`, `restore`, `actions` and `relationships`. A token with `*` adds no further restriction to the user's Nova permissions. Permissions are selected per token; there is no second set of default abilities in the config.
 
