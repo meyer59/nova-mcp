@@ -267,6 +267,8 @@ Only use the scalar adapter for a field whose input really is a scalar. More com
 
 Laravel MCP 0.6.7+, 0.7, 0.8, 0.9 and 1.x are supported. No Composer version alias is needed. Composer enforces the PHP and framework requirements of each dependency. [Laravel 13 requires PHP 8.3+](https://laravel.com/docs/13.x/releases), and [Nova 5.8 introduced Laravel 13 support](https://nova.laravel.com/releases/5.8.0).
 
+After upgrading this package or Laravel MCP, clear stale routes with `php artisan route:clear`. If your deployment caches routes, rebuild them with `php artisan route:cache`.
+
 ## Development
 
 Nova is proprietary and is never committed or bundled into this package. Install its licensed dependency through your own Composer Nova credentials/repository, or use a local path repository. See [CONTRIBUTING.md](CONTRIBUTING.md) for the isolated local setup and CI requirements.
