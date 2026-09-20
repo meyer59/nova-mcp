@@ -34,6 +34,7 @@ jobs:
           node-version: '22'
       - run: find src config database tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - run: node --check resources/js/tool.js && node scripts/build.mjs && git diff --exit-code -- dist/tool.js
+      - run: node --test tests/js/tool.test.cjs
       - name: Install licensed dependencies
         id: dependencies
         env:

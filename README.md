@@ -154,7 +154,7 @@ NovaMcp::manageTokensUsing(function ($actor, $targetUser) {
 });
 ```
 
-This defines the `manageNovaMcpTokens` gate. By default, cross-user management is denied. Administrators can use “Manage another user” in the tool and enter a user ID from Nova's configured provider. They cannot retrieve an existing secret; rotation is required.
+This defines the `manageNovaMcpTokens` gate. By default, users see only their own tokens. MCP Access automatically lists all tokens they are allowed to manage, with the owner's name and ID. Edit, rotate or revoke a token directly from the table, or select its owner to create another token for that user. The list is paginated. Existing secrets cannot be retrieved; rotate a token to get a new secret.
 
 ## Tools
 

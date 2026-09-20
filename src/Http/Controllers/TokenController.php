@@ -13,17 +13,29 @@ class TokenController
 {
     public function __invoke(Request $request, TokenService $tokens, ProviderResolver $providers, ?string $id = null, ?string $operation = null): mixed
     {
-        Validator::make($request->query(), ['owner' => ['sometimes', 'string', 'max:160'], 'page' => ['sometimes', 'integer', 'min:1', 'max:10000']])->validate();
+        Validator::make($request->query(), [
+            'owner' => ['sometimes', 'string', 'max:160', 'prohibited_if:scope,manageable'],
+            'page' => ['sometimes', 'integer', 'min:1', 'max:10000'],
+            'scope' => ['sometimes', 'in:manageable'],
+            'before' => ['sometimes', 'integer', 'min:1'],
+        ])->validate();
         $actor = Nova::user($request);
-        $target = $request->query('owner') === null ? $actor : $providers->provider()->retrieveById($request->query('owner'));
-        abort_unless($target && NovaMcp::canManage($actor, $target), 404);
+        $target = null;
+        if ($request->query('scope') !== 'manageable') {
+            $target = $request->query('owner') === null ? $actor : $providers->provider()->retrieveById($request->query('owner'));
+            abort_unless($target && NovaMcp::canManage($actor, $target), 404);
+        } else {
+            abort_unless($request->isMethod('GET'), 422);
+        }
         if ($request->isMethod('GET')) {
-            $page = $tokens->query($actor, $target)->latest('id')->simplePaginate(50);
+            if ($target) {
+                $page = $tokens->query($actor, $target)->latest('id')->simplePaginate(50);
+                $listing = ['tokens' => $page->items(), 'page' => $page->currentPage(), 'has_more' => $page->hasMorePages()];
+            } else {
+                $listing = $tokens->manageable($actor, $request->query('before'));
+            }
 
-            return response()->json([
-                'tokens' => $page->items(),
-                'page' => $page->currentPage(),
-                'has_more' => $page->hasMorePages(),
+            return response()->json($listing + [
                 'endpoint' => url(config('nova-mcp.path')),
                 'default_expiration_days' => config('nova-mcp.tokens.default_expiration_days'),
                 'max_expiration_days' => config('nova-mcp.tokens.max_expiration_days'),

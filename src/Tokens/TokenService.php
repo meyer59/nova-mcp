@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -29,6 +30,54 @@ class TokenService
         return Token::query()->where('provider', $this->providers->name())
             ->where('tokenable_type', $this->providers->type($target))
             ->where('tokenable_id', (string) $target->getAuthIdentifier());
+    }
+
+    /**
+     * List authorized tokens without requiring a queryable Eloquent user provider.
+     * Bound each scan so a restrictive per-user gate cannot trigger unbounded work.
+     */
+    public function manageable(Authenticatable $actor, ?string $before = null): array
+    {
+        $query = Token::query()->where('provider', $this->providers->name());
+        if (! Gate::has('manageNovaMcpTokens')) {
+            $query->where('tokenable_type', $this->providers->type($actor))
+                ->where('tokenable_id', (string) $actor->getAuthIdentifier());
+        }
+        if ($before !== null) {
+            $query->where('id', '<', $before);
+        }
+
+        $provider = $this->providers->provider();
+        $owners = [];
+        $items = [];
+        $lastId = null;
+        $scanned = 0;
+        foreach ((clone $query)->lazyByIdDesc(100) as $token) {
+            $lastId = (string) $token->id;
+            $scanned++;
+            $key = $token->tokenable_type.':'.$token->tokenable_id;
+            if (! array_key_exists($key, $owners)) {
+                $target = $provider->retrieveById($token->tokenable_id);
+                $owners[$key] = $target && $this->providers->owns($target, $token)
+                    && NovaMcp::canManage($actor, $target) ? $target : null;
+            }
+            if ($target = $owners[$key]) {
+                $name = $target->name ?? null;
+                $items[] = $token->toArray() + ['owner' => [
+                    'id' => (string) $target->getAuthIdentifier(),
+                    'name' => is_string($name) && $name !== '' ? $name : null,
+                    'is_self' => $actor::class === $target::class
+                        && (string) $actor->getAuthIdentifier() === (string) $target->getAuthIdentifier(),
+                ]];
+            }
+            if (count($items) === 50 || $scanned === 1000) {
+                break;
+            }
+        }
+
+        $hasMore = $lastId !== null && (clone $query)->where('id', '<', $lastId)->exists();
+
+        return ['tokens' => $items, 'has_more' => $hasMore, 'next_cursor' => $hasMore ? $lastId : null];
     }
 
     public function create(Authenticatable $actor, Authenticatable $target, array $input): array
