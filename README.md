@@ -6,6 +6,8 @@ A Laravel Nova package that connects AI assistants to your application through t
 
 [Quick start](#quick-start) · [Connect a client](#connect-a-client) · [Explain your resources](#explain-your-resources-to-the-llm) · [Permissions](#permissions) · [Tokens](#token-management) · [Tools](#tools) · [Compatibility](#compatibility)
 
+If Nova MCP is useful to you, please consider [giving it a star on GitHub](https://github.com/meyer59/nova-mcp). It helps others discover the package.
+
 ## Quick start
 
 Start with an application that already has a licensed Nova installation. **Laravel 12 is supported; Laravel 13 support is experimental.** See [compatibility](#compatibility) for PHP and Nova requirements.
