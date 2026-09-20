@@ -17,7 +17,7 @@ class ScalarAdapter implements FieldAdapter
         if ($this->format) {
             $schema['format'] = $this->format;
         }
-        if ($field::class === Select::class) {
+        if ($field instanceof Select) {
             $schema['type'] = ['string', 'integer', 'null'];
             $schema['enum'] = array_merge(array_column($field->jsonSerialize()['options'] ?? [], 'value'), [null]);
         }
@@ -44,13 +44,35 @@ class ScalarAdapter implements FieldAdapter
 
     public function prepare(Field $field, mixed $value, NovaRequest $request): mixed
     {
+        $schema = $this->schema($field, $request);
+        if ($this->type === 'boolean') {
+            $value = match ($value) {
+                'true', '1', 1 => true,
+                'false', '0', 0 => false,
+                default => $value,
+            };
+        } elseif ($this->type === 'number' && is_string($value) && is_numeric($value)) {
+            $number = $value + 0;
+            // Reject lossy large integer / high-precision decimal conversions.
+            if (is_int($number) || (is_finite($number) && ! preg_match('/^[+-]?\\d+$/D', $value)
+                && strlen(ltrim(preg_replace('/[^0-9]/', '', $value), '0')) <= 15
+                && ($number != 0 || ! preg_match('/[1-9]/', preg_split('/e/i', $value)[0])))) {
+                $value = $number;
+            }
+        } elseif ($field instanceof Select && is_string($value)) {
+            foreach ($schema['enum'] ?? [] as $option) {
+                if (is_int($option) && (string) $option === $value) {
+                    $value = $option;
+                    break;
+                }
+            }
+        }
         $valid = $value === null || match ($this->type) {
-            'string' => is_string($value) || ($field::class === Select::class && is_int($value)),
-            'number' => is_int($value) || is_float($value),
+            'string' => is_string($value) || ($field instanceof Select && is_int($value)),
+            'number' => is_int($value) || (is_float($value) && is_finite($value)),
             'boolean' => is_bool($value),
             default => false,
         };
-        $schema = $this->schema($field, $request);
         if (! $valid || (isset($schema['enum']) && ! in_array($value, $schema['enum'], true))) {
             throw ValidationException::withMessages([$field->attribute => 'Invalid field value.']);
         }

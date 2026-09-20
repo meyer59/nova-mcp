@@ -251,9 +251,33 @@ Exclude Authorization headers and the token-management response bodies from host
 
 Rotation invalidates the previous secret for subsequent requests immediately. It cannot cancel an already executing operation or a job Nova already queued. Token ability edits apply to subsequent requests. `actions` authorizes Nova actions independently of generic CRUD abilities: an action can have destructive or external side effects, subject to its Nova permissions.
 
+## Updates and validation
+
+Send only the fields you want to change to `nova.update`. Omitted fields keep their stored values; an explicit `null` is still validated as a supplied value. Existing scalar values are available to Nova during validation, including cross-field rules. Passwords and stored file paths are not substituted for new password or upload inputs. Nova's controllers, authorization, validation hooks, field filling and save hooks remain in use.
+
+Required unsupported fields are not silently ignored. An existing value can satisfy their rules on update, but missing values, file-specific rules, or an existing unrelatable relationship may still prevent the operation. Register an adapter or use the Nova interface when the operation needs an unsupported input. Some dynamic fields also need their writable dependencies included in the update; the package rejects updates that Nova would otherwise silently skip.
+
+`nova.describe` includes `create_schema` and `update_schema`, alongside the existing field lists. These provide supported validation hints such as required creation inputs, lengths, numeric bounds, formats, options, help text and defaults. Update schemas allow omitted fields; `x-nova-required` describes a requirement on the resulting state. Custom and conditional rules remain server-side. Schemas describe the current request and record; Nova makes the final validation decision.
+
+Supported scalar defaults are applied when a creation or action field is omitted. Unambiguous boolean strings, numeric strings and integer select keys are normalized before Nova validates them. Ambiguous or lossy conversions are rejected.
+
+Tool errors contain JSON with a stable `code` and a `message`. Validation errors also include safe messages for available fields:
+
+```json
+{
+  "code": "validation",
+  "message": "Validation failed.",
+  "fields": {
+    "name": ["This field is required."]
+  }
+}
+```
+
+Other codes are `forbidden`, `unavailable` and `failed`. A validation entry named `_` represents an argument or resource requirement that cannot be described as an available field. Custom application error messages are not forwarded.
+
 ## Field and relationship support
 
-Supported scalar fields include Text, Textarea, Email, URL, Slug, Select, Markdown, Code, Number, Currency, Boolean, Date and DateTime. ID is read-only. Field visibility, context and readonly status are evaluated through Nova. Unknown/custom subclasses are excluded unless explicitly adapted; they do not inherit permission to write just because they extend Text.
+Supported scalar fields include Text, Textarea, Email, URL, Slug, Select, Country, Timezone, Color, Markdown, Code, Number, Currency, Boolean, Date and DateTime. ID is read-only. Field visibility, context and readonly status are evaluated through Nova. Unknown/custom subclasses are excluded unless explicitly adapted; they do not inherit permission to write just because they extend Text.
 
 BelongsTo reads and writes require the `relationships` ability as well as the operation's ability. Related resources must be exposed, visible, tenant-scoped, and eligible under Nova's relatable query. Nova still performs its own relationship validation and filling.
 

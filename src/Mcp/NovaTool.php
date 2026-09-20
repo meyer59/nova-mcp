@@ -77,11 +77,16 @@ class NovaTool extends Tool
             'annotations' => ['readOnlyHint' => $read, 'destructiveHint' => ! $read, 'idempotentHint' => $read, 'openWorldHint' => true]];
     }
 
+    private function error(string $code, string $message, array $fields = []): Response
+    {
+        return Response::error(json_encode(['code' => $code, 'message' => $message] + ($code === 'validation' ? ['fields' => (object) ($fields ?: ['_' => ['Check the supplied arguments and field values.']])] : []), JSON_THROW_ON_ERROR));
+    }
+
     public function handle(Request $request): Response
     {
         $token = request()->attributes->get('nova-mcp.token');
         if (! $token || ! $token->allows($this->ability())) {
-            return Response::error('This token does not allow this operation.');
+            return $this->error('forbidden', 'This token does not allow this operation.');
         }
         $outcome = 'failed';
         $mutation = in_array($this->operation, ['create', 'update', 'delete', 'restore', 'run_action'], true);
@@ -99,18 +104,21 @@ class NovaTool extends Tool
             $outcome = 'completed';
 
             return Response::json($result);
+        } catch (ValidationFailure $e) {
+            return $this->error('validation', 'Validation failed.', $e->fields);
         } catch (ValidationException $e) {
-            // Custom application messages can contain secrets or hidden field names.
-            return Response::error('Validation failed. Check the visible field schema and supplied values.');
+            return $this->error('validation', 'Validation failed.', ValidationFailure::from($e, array_keys((array) $this->toArray()['inputSchema']['properties']))->fields);
         } catch (AuthorizationException|ModelNotFoundException $e) {
-            return Response::error('Resource or operation unavailable.');
+            return $this->error('unavailable', 'Resource or operation unavailable.');
         } catch (HttpExceptionInterface $e) {
-            return Response::error($e->getStatusCode() === 422 ? 'Invalid operation or field input.' : 'Resource or operation unavailable.');
+            return $e->getStatusCode() === 422
+                ? $this->error('validation', 'Invalid operation or field input.')
+                : $this->error('unavailable', 'Resource or operation unavailable.');
         } catch (Throwable $e) {
 
             $audit->record('operation.failed', $meta + ['exception' => $e::class]);
 
-            return Response::error('The Nova operation failed. Check the server audit log.');
+            return $this->error('failed', 'The Nova operation failed. Check the server audit log.');
         } finally {
             if ($mutation) {
                 $audit->record('mutation.finished', $meta + ['outcome' => $outcome]);

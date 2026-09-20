@@ -23,6 +23,7 @@ use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Http\Requests\ResourceIndexRequest;
 use Laravel\Nova\Resource;
 use NovaMcp\Fields\FieldRegistry;
+use NovaMcp\Fields\ValidationSchema;
 use NovaMcp\Nova\Requests\ActionRequest;
 use NovaMcp\Nova\Requests\DeleteRequest;
 use NovaMcp\Nova\Requests\DetailRequest;
@@ -143,11 +144,24 @@ class Gateway
         $token = $request->attributes->get('nova-mcp.token');
         if ($token->allows('create') && $class::authorizedToCreate($request)) {
             $create = $this->context->make(CreateResourceRequest::class, $a['resource']);
-            $result['create_fields'] = (object) $this->context->run($create, fn () => $this->fields->describe((new $class($class::newModel()))->creationFields($create), $create, true));
+            $result['create_fields'] = (object) $this->context->run($create, function () use ($class, $create) {
+                $resource = new $class($class::newModel());
+                $fields = $resource->creationFields($create)->applyDependsOn($create)->onlyCreateFields($create, $resource->model());
+
+                return $this->fields->describe($fields, $create, true);
+            });
+            $result['create_schema'] = app(ValidationSchema::class)->object((array) $result['create_fields'], false);
         }
         if (isset($a['id']) && $token->allows('update') && $resource->authorizedToUpdate($request)) {
             $update = $this->context->make(UpdateRequest::class, $a['resource'], [], $a['id']);
-            $result['update_fields'] = (object) $this->context->run($update, fn () => $this->fields->describe($resource->updateFields($update), $update, true));
+            $result['update_fields'] = (object) $this->context->run($update, function () use ($resource, $update) {
+                $state = app(UpdateState::class);
+                $update->replace($state->values($resource, $update));
+                $update->replace($state->forFields($resource, $update));
+
+                return $this->fields->describe($resource->updateFields($update)->applyDependsOn($update)->onlyUpdateFields($update, $resource->model()), $update, true);
+            });
+            $result['update_schema'] = app(ValidationSchema::class)->object((array) $result['update_fields'], true);
         }
         $result['filters'] = $resource->availableFilters($request)->map(fn ($filter) => ['key' => $filter->key(), 'name' => $filter->name(), 'options' => $filter->options($request)])->values()->all();
         $result['lenses'] = $resource->availableLenses($request)->map(fn ($lens) => ['key' => $lens->uriKey(), 'name' => $lens->name()])->values()->all();
@@ -221,6 +235,11 @@ class Gateway
         if (in_array($operation, ['create', 'update'], true)) {
             $input = $a['fields'] ?? [];
             $request->merge($input);
+            if ($operation === 'update') {
+                $state = app(UpdateState::class);
+                $request->replace($input + $state->values($resource, $request));
+                $request->replace($input + $state->forFields($resource, $request));
+            }
             $fields = $operation === 'create' ? $resource->creationFields($request) : $resource->updateFields($request);
             $fields = $fields->applyDependsOn($request);
             $fields = $operation === 'create' ? $fields->onlyCreateFields($request, $resource->model()) : $fields->onlyUpdateFields($request, $resource->model());
@@ -231,7 +250,16 @@ class Gateway
             'create' => ResourceStoreController::class, 'update' => ResourceUpdateController::class,
             'delete' => ResourceDestroyController::class, 'restore' => ResourceRestoreController::class,
         };
-        $response = app($controller)($request);
+        if ($request instanceof UpdateRequest) {
+            $request->bridgeValidation = true;
+        }
+        try {
+            $response = app($controller)($request);
+        } finally {
+            if ($request instanceof UpdateRequest) {
+                $request->bridgeValidation = false;
+            }
+        }
         $payload = $response instanceof JsonResponse ? $response->getData(true) : [];
 
         return ['status' => 'completed', 'id' => (string) ($payload['id'] ?? $a['id'] ?? '')];

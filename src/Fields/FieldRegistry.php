@@ -18,7 +18,7 @@ class FieldRegistry
 
     public function __construct()
     {
-        foreach (['Text', 'Textarea', 'Email', 'URL', 'Slug', 'Select', 'Markdown', 'Code', 'Hidden'] as $field) {
+        foreach (['Text', 'Textarea', 'Email', 'URL', 'Slug', 'Select', 'Country', 'Timezone', 'Color', 'Markdown', 'Code', 'Hidden'] as $field) {
             $this->register('Laravel\\Nova\\Fields\\'.$field, new ScalarAdapter('string'));
         }
         foreach (['Number', 'Currency'] as $field) {
@@ -54,7 +54,11 @@ class FieldRegistry
             if ($writing ? ! $adapter->writable($field, $request) : ! $adapter->readable($field, $request)) {
                 continue;
             }
-            $output[$field->attribute] = $adapter->schema($field, $request) + ['title' => $field->name, 'readOnly' => ! $adapter->writable($field, $request)];
+            $schema = $adapter->schema($field, $request);
+            if ($writing) {
+                $schema = app(ValidationSchema::class)->enrich($field, $request, $schema);
+            }
+            $output[$field->attribute] = $schema + ['title' => $field->name, 'readOnly' => ! $adapter->writable($field, $request)];
         }
 
         return $output;
@@ -78,6 +82,17 @@ class FieldRegistry
         foreach ($fields as $field) {
             if ($field instanceof Field && $field->authorizedToSee($request) && ($adapter = $this->adapter($field)) && $adapter->writable($field, $request)) {
                 $allowed[$field->attribute] = [$field, $adapter];
+            }
+        }
+        $request->attributes->set('nova-mcp.error-fields', array_keys($allowed));
+        if ($request->isCreateOrAttachRequest() || $request->isActionRequest()) {
+            foreach ($allowed as $key => [$field, $adapter]) {
+                if (! array_key_exists($key, $input)) {
+                    $default = $field->resolveDefaultValue($request);
+                    if (is_scalar($default)) {
+                        $input[$key] = $default;
+                    }
+                }
             }
         }
         $output = [];

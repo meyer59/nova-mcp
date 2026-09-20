@@ -5,7 +5,9 @@ namespace NovaMcp\Nova;
 use Closure;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\Facade;
+use Illuminate\Validation\ValidationException;
 use Laravel\Nova\Http\Requests\NovaRequest;
+use NovaMcp\Mcp\ValidationFailure;
 
 class RequestContext
 {
@@ -40,6 +42,8 @@ class RequestContext
         Facade::clearResolvedInstance('request');
         try {
             return $callback($request);
+        } catch (ValidationException $exception) {
+            throw ValidationFailure::from($exception, $request->attributes->get('nova-mcp.error-fields', []));
         } finally {
             app()->instance('request', $outer);
             Facade::clearResolvedInstance('request');

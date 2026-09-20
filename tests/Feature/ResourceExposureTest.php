@@ -87,7 +87,7 @@ class ResourceExposureTest extends TestCase
         ];
         foreach ($operations as $operation => $arguments) {
             $this->callTool($token, $operation, ['resource' => 'records'] + $arguments)
-                ->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', 'Resource or operation unavailable.');
+                ->assertJsonPath('result.isError', true)->assertJsonPath('result.content.0.text', json_encode(['code' => 'unavailable', 'message' => 'Resource or operation unavailable.']));
         }
         $this->assertSame(2, Record::withTrashed()->count());
         $this->assertSame('UNCHANGED', $record->fresh()->name);
