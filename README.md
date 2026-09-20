@@ -43,7 +43,7 @@ Open **MCP Access** in Nova, give the token a name, choose its permissions and c
 
 New tokens default to **Read only** and expire after **30 days**. The secret is shown only when creating or rotating a token.
 
-To customize the package, publish its optional config:
+[Browse the default configuration](config/nova-mcp.php) to see the available options. To customize the package, publish its optional config:
 
 ```bash
 php artisan vendor:publish --tag=nova-mcp-config
