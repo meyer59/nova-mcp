@@ -71,8 +71,10 @@ class AccessGateTest extends TestCase
         $this->rpc($this->token($this->user('no-nova'))['plain_text_token'], 'ping')->assertForbidden();
         $readOnly = $this->token(abilities: ['read'])['plain_text_token'];
         $this->callTool($readOnly, 'resources')->assertOk();
-        $this->callTool($readOnly, 'create', ['resource' => 'records', 'fields' => ['name' => 'blocked']])
-            ->assertOk()->assertJsonPath('error.code', -32602);
+        $response = $this->callTool($readOnly, 'create', ['resource' => 'records', 'fields' => ['name' => 'blocked']]);
+        // MCP 1.x uses HTTP 400 for JSON-RPC errors; 0.x used HTTP 200.
+        $this->assertContains($response->status(), [200, 400]);
+        $response->assertJsonPath('error.code', -32602);
         $this->assertSame(0, Record::count());
     }
 }

@@ -265,7 +265,7 @@ Only use the scalar adapter for a field whose input really is a scalar. More com
 | 12.41.1+ | 8.2+ | 5.7+ | Supported |
 | 13 | 8.3+ | 5.8+ | Experimental; full integration validation is pending |
 
-Laravel MCP 0.6.7+ is required. Composer enforces the PHP and framework requirements of each dependency. [Laravel 13 requires PHP 8.3+](https://laravel.com/docs/13.x/releases), and [Nova 5.8 introduced Laravel 13 support](https://nova.laravel.com/releases/5.8.0).
+Laravel MCP 0.6.7+, 0.7, 0.8, 0.9 and 1.x are supported. No Composer version alias is needed. Composer enforces the PHP and framework requirements of each dependency. [Laravel 13 requires PHP 8.3+](https://laravel.com/docs/13.x/releases), and [Nova 5.8 introduced Laravel 13 support](https://nova.laravel.com/releases/5.8.0).
 
 ## Development
 

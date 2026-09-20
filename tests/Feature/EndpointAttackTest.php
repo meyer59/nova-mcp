@@ -136,8 +136,8 @@ class EndpointAttackTest extends TestCase
         $token = $this->token($owner)['plain_text_token'];
         Gate::define('accessNovaMcp', fn ($user) => $user->name === 'allowed');
         $response = $this->attack('Bearer '.$token, ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => new \stdClass, 'clientInfo' => ['name' => 'admin', 'version' => '1']]])->assertOk();
-        $session = $response->headers->get('MCP-Session-Id');
-        $this->assertNotEmpty($session);
+        // MCP 1.x is stateless; neither an issued nor an invented session ID authenticates.
+        $session = $response->headers->get('MCP-Session-Id') ?? 'attacker-chosen-session';
         $headers = ['HTTP_MCP_SESSION_ID' => $session];
         $this->attack(null, server: $headers)->assertUnauthorized();
         $owner->update(['name' => 'denied']);

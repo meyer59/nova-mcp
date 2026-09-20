@@ -24,8 +24,10 @@ class ReleaseSecurityTest extends TestCase
         $owner = $this->user();
         $token = $this->token($owner)['plain_text_token'];
         $this->actingAs($owner);
-        $this->postJson('/mcp/nova?access_token='.urlencode($token), ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping'])
-            ->assertUnauthorized()->assertHeader('WWW-Authenticate', 'Bearer');
+        $response = $this->postJson('/mcp/nova?access_token='.urlencode($token), ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'ping'])
+            ->assertUnauthorized()->assertHeader('WWW-Authenticate');
+        // Newer MCP versions add standard Bearer challenge parameters.
+        $this->assertMatchesRegularExpression('/^Bearer(?:\\s|$)/', $response->headers->get('WWW-Authenticate'));
         foreach (['', 'invalid', $token.'suffix', str_replace('nvm_', 'other_', $token), 'nvm_0_'.str_repeat('a', 64), substr($token, 0, -1)] as $invalid) {
             $this->rpc($invalid, 'ping')->assertUnauthorized();
         }

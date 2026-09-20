@@ -7,7 +7,7 @@
     "php": "^8.2",
     "laravel/framework": "^12.41.1 || ^13.0",
     "laravel/nova": "^5.7",
-    "laravel/mcp": "^0.6.7"
+    "laravel/mcp": "^0.6.7 || ^0.7 || ^0.8 || ^0.9 || ^1.0"
   },
   "require-dev": {
     "laravel/pint": "^1.20",
