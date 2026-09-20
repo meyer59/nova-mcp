@@ -1,0 +1,39 @@
+<?php
+
+namespace NovaMcp\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Laravel\Nova\Nova;
+use NovaMcp\Auth\ProviderResolver;
+use NovaMcp\NovaMcp;
+use NovaMcp\Tokens\TokenService;
+
+class TokenController
+{
+    public function __invoke(Request $request, TokenService $tokens, ProviderResolver $providers, ?string $id = null, ?string $operation = null): mixed
+    {
+        Validator::make($request->query(), ['owner' => ['sometimes', 'string', 'max:160'], 'page' => ['sometimes', 'integer', 'min:1', 'max:10000']])->validate();
+        $actor = Nova::user($request);
+        $target = $request->query('owner') === null ? $actor : $providers->provider()->retrieveById($request->query('owner'));
+        abort_unless($target && NovaMcp::canManage($actor, $target), 404);
+        if ($request->isMethod('GET')) {
+            $page = $tokens->query($actor, $target)->latest('id')->simplePaginate(50);
+
+            return response()->json([
+                'tokens' => $page->items(),
+                'page' => $page->currentPage(),
+                'has_more' => $page->hasMorePages(),
+                'endpoint' => url(config('nova-mcp.path')),
+                'default_expiration_days' => config('nova-mcp.tokens.default_expiration_days'),
+                'max_expiration_days' => config('nova-mcp.tokens.max_expiration_days'),
+                'allow_non_expiring' => config('nova-mcp.tokens.allow_non_expiring'),
+            ]);
+        }
+        if ($id === null) {
+            return response()->json($tokens->create($actor, $target, $request->all()), 201);
+        }
+
+        return response()->json($tokens->change($actor, $target, $id, $operation ?? 'update', $request->all()));
+    }
+}

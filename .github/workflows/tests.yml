@@ -1,0 +1,52 @@
+name: Package checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { php: '8.2', laravel: '^12.41.1', testbench: '^10.8' }
+          - { php: '8.3', laravel: '^12.41.1', testbench: '^10.8' }
+          - { php: '8.4', laravel: '^12.41.1', testbench: '^10.8' }
+          - { php: '8.3', laravel: '^13.0', testbench: '^11.0' }
+          - { php: '8.4', laravel: '^13.0', testbench: '^11.0' }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, intl, pdo_sqlite, zip, gd
+          coverage: none
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: find src config database tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: node --check resources/js/tool.js && node scripts/build.mjs && git diff --exit-code -- dist/tool.js
+      - name: Install licensed dependencies
+        id: dependencies
+        env:
+          COMPOSER_AUTH: ${{ secrets.NOVA_COMPOSER_AUTH }}
+        run: |
+          if [ -z "$COMPOSER_AUTH" ]; then
+            echo '::warning::Set NOVA_COMPOSER_AUTH to run the licensed Nova integration suite. Syntax/build checks only.'
+            echo 'installed=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          composer config repositories.nova composer https://nova.laravel.com
+          composer require --no-update "laravel/framework:${{ matrix.laravel }}"
+          composer require --no-update --dev "orchestra/testbench:${{ matrix.testbench }}"
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts --no-plugins
+          echo 'installed=true' >> "$GITHUB_OUTPUT"
+      - if: steps.dependencies.outputs.installed == 'true'
+        run: composer audit --no-interaction
+      - if: steps.dependencies.outputs.installed == 'true'
+        run: composer test
+      - if: steps.dependencies.outputs.installed == 'true'
+        run: composer lint
+      - if: steps.dependencies.outputs.installed == 'true'
+        run: composer analyse
