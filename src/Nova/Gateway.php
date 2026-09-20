@@ -144,9 +144,11 @@ class Gateway
         $token = $request->attributes->get('nova-mcp.token');
         if ($token->allows('create') && $class::authorizedToCreate($request)) {
             $create = $this->context->make(CreateResourceRequest::class, $a['resource']);
-            $result['create_fields'] = (object) $this->context->run($create, function () use ($class, $create) {
+            $result['create_fields'] = (object) $this->context->run($create, function () use ($class, $create, &$result) {
                 $resource = new $class($class::newModel());
                 $fields = $resource->creationFields($create)->applyDependsOn($create)->onlyCreateFields($create, $resource->model());
+
+                $result['create_blockers'] = $this->fields->blockers($fields->withoutReadonly($create)->withoutUnfillable(), $create);
 
                 return $this->fields->describe($fields, $create, true);
             });
@@ -154,12 +156,15 @@ class Gateway
         }
         if (isset($a['id']) && $token->allows('update') && $resource->authorizedToUpdate($request)) {
             $update = $this->context->make(UpdateRequest::class, $a['resource'], [], $a['id']);
-            $result['update_fields'] = (object) $this->context->run($update, function () use ($resource, $update) {
+            $result['update_fields'] = (object) $this->context->run($update, function () use ($resource, $update, &$result) {
                 $state = app(UpdateState::class);
                 $update->replace($state->values($resource, $update));
                 $update->replace($state->forFields($resource, $update));
 
-                return $this->fields->describe($resource->updateFields($update)->applyDependsOn($update)->onlyUpdateFields($update, $resource->model()), $update, true);
+                $fields = $resource->updateFields($update)->applyDependsOn($update)->onlyUpdateFields($update, $resource->model());
+                $result['update_blockers'] = $this->fields->blockers($fields->withoutReadonly($update)->withoutUnfillable(), $update, $update->all());
+
+                return $this->fields->describe($fields, $update, true);
             });
             $result['update_schema'] = app(ValidationSchema::class)->object((array) $result['update_fields'], true);
         }
@@ -285,10 +290,15 @@ class Gateway
             return ! $action->sole || count($models) === 1;
         });
         if ($operation === 'actions') {
-            return ['actions' => $actions->map(fn ($action) => [
-                'key' => $action->uriKey(), 'name' => $action->name(),
-                'fields' => (object) $this->fields->describe(FieldCollection::make($action->fields($request))->authorized($request)->applyDependsOn($request), $request, true),
-            ])->values()->all()];
+            return ['actions' => $actions->map(function ($action) use ($request) {
+                $fields = $this->fields->describe(FieldCollection::make($action->fields($request))->authorized($request)->applyDependsOn($request), $request, true);
+
+                return [
+                    'key' => $action->uriKey(), 'name' => $action->name(),
+                    'fields' => (object) $fields,
+                    'schema' => app(ValidationSchema::class)->object($fields, false),
+                ];
+            })->values()->all()];
         }
         $action = $actions->first(fn ($action) => $action->uriKey() === $a['action']);
         abort_unless($action, 404, 'Action unavailable.');

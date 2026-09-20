@@ -55,8 +55,17 @@ class UpdateState
                 $value = $resource->model()->getAttribute($relation->getForeignKeyName());
                 $values[$field->attribute] = $value === null ? null : (string) $value;
             } elseif ($field::class === Boolean::class && array_key_exists($field->attribute, $values)) {
-                $value = $values[$field->attribute];
-                $values[$field->attribute] = $value === null ? null : $value == $field->trueValue;
+                // Compare cast values, as Nova does (not raw date strings against Carbon).
+                $value = $resource->model()->getAttribute($field->attribute);
+                $true = $field->trueValue;
+                if ($true instanceof \DateTimeInterface && ! $value instanceof \DateTimeInterface && $value !== null) {
+                    $true = $resource->model()->fromDateTime($true);
+                } elseif ($true instanceof \Stringable && is_scalar($value)) {
+                    $true = (string) $true;
+                }
+                // An unchecked Nova checkbox submits 0 even when storage is NULL.
+                // Only loaded attributes participate; an unselected column is unknown.
+                $values[$field->attribute] = $value !== null && $value == $true;
             }
         }
 

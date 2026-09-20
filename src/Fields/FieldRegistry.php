@@ -10,6 +10,7 @@ use Laravel\Nova\Fields\DateTime;
 use Laravel\Nova\Fields\Field;
 use Laravel\Nova\Fields\Hidden;
 use Laravel\Nova\Fields\ID;
+use Laravel\Nova\Fields\Trix;
 use Laravel\Nova\Http\Requests\NovaRequest;
 
 class FieldRegistry
@@ -24,6 +25,13 @@ class FieldRegistry
         foreach (['Number', 'Currency'] as $field) {
             $this->register('Laravel\\Nova\\Fields\\'.$field, new ScalarAdapter('number'));
         }
+        foreach (['MultiSelect', 'BooleanGroup', 'KeyValue'] as $field) {
+            $this->register('Laravel\\Nova\\Fields\\'.$field, new CollectionAdapter);
+        }
+        foreach (['Status', 'Badge'] as $field) {
+            $this->register('Laravel\\Nova\\Fields\\'.$field, new ScalarAdapter('string', false));
+        }
+        $this->register(Trix::class, new ScalarAdapter('string'));
         $this->register(Boolean::class, new ScalarAdapter('boolean'));
         $this->register(ID::class, new ScalarAdapter('string', false));
         $this->register(Date::class, new ScalarAdapter('string', true, 'date'));
@@ -47,6 +55,7 @@ class FieldRegistry
     public function describe(iterable $fields, NovaRequest $request, bool $writing = false): array
     {
         $output = [];
+        $dependencies = [];
         foreach ($fields as $field) {
             if (! $field instanceof Field || ! $field->authorizedToSee($request) || ! ($adapter = $this->adapter($field))) {
                 continue;
@@ -59,9 +68,44 @@ class FieldRegistry
                 $schema = app(ValidationSchema::class)->enrich($field, $request, $schema);
             }
             $output[$field->attribute] = $schema + ['title' => $field->name, 'readOnly' => ! $adapter->writable($field, $request)];
+            if ($writing) {
+                // Values inside Nova's dependsOn metadata are never returned.
+                $dependencies[$field->attribute] = array_keys((array) ($field->jsonSerialize()['dependsOn'] ?? []));
+            }
+        }
+
+        foreach ($dependencies as $attribute => $names) {
+            $visible = array_values(array_intersect($names, array_keys($output)));
+            if ($visible) {
+                $output[$attribute]['x-nova-depends-on'] = $visible;
+            }
         }
 
         return $output;
+    }
+
+    /**
+     * Known missing unsupported inputs, not a prediction of validation success.
+     * The caller supplies Nova's actual validation field collection.
+     */
+    public function blockers(iterable $fields, NovaRequest $request, array $state = []): array
+    {
+        $blockers = [];
+        foreach ($fields as $field) {
+            $adapter = $this->adapter($field);
+            if (($adapter && $adapter->writable($field, $request)) || ! app(ValidationSchema::class)->required($field, $request)) {
+                continue;
+            }
+            $value = $state[$field->attribute] ?? null;
+            if ($value !== null && $value !== '' && $value !== []) {
+                continue;
+            }
+            $visible = $field->authorizedToSee($request);
+            $key = $visible ? $field->attribute : '_';
+            $blockers[$key] = ['field' => $key, 'reason' => $visible ? 'required_unsupported_field' : 'unavailable_requirement'];
+        }
+
+        return array_values($blockers);
     }
 
     public function values(iterable $fields, NovaRequest $request): array
@@ -89,7 +133,7 @@ class FieldRegistry
             foreach ($allowed as $key => [$field, $adapter]) {
                 if (! array_key_exists($key, $input)) {
                     $default = $field->resolveDefaultValue($request);
-                    if (is_scalar($default)) {
+                    if (is_scalar($default) || ($adapter instanceof CollectionAdapter && (is_array($default) || $default instanceof \stdClass))) {
                         $input[$key] = $default;
                     }
                 }
@@ -101,8 +145,16 @@ class FieldRegistry
                 throw ValidationException::withMessages(['fields' => 'A supplied field is unavailable or read-only.']);
             }
             [$field, $adapter] = $allowed[$key];
+            // Update validation rechecks already prepared inputs with fresh Nova
+            // fields. Only decode values recorded by this request's first pass.
+            $previous = $request->attributes->get('nova-mcp.prepared-values', []);
+            if ($adapter instanceof CollectionAdapter && is_string($value) && ($previous[$key] ?? null) === $value) {
+                $value = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            }
             $output[$key] = $adapter->prepare($field, $value, $request);
         }
+
+        $request->attributes->set('nova-mcp.prepared-values', $output);
 
         return $output;
     }

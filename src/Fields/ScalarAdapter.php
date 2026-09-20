@@ -5,6 +5,7 @@ namespace NovaMcp\Fields;
 use Illuminate\Validation\ValidationException;
 use Laravel\Nova\Fields\Field;
 use Laravel\Nova\Fields\Select;
+use Laravel\Nova\Fields\Trix;
 use Laravel\Nova\Http\Requests\NovaRequest;
 
 class ScalarAdapter implements FieldAdapter
@@ -32,7 +33,8 @@ class ScalarAdapter implements FieldAdapter
 
     public function writable(Field $field, NovaRequest $request): bool
     {
-        return $this->write && ! $field->isReadonly($request) && ! $field->isComputed();
+        return $this->write && ! $field->isReadonly($request) && ! $field->isComputed()
+            && (! $field instanceof Trix || ! $field->withFiles);
     }
 
     public function value(Field $field, NovaRequest $request): mixed

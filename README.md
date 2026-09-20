@@ -191,6 +191,15 @@ Filters are an object mapping the filter keys returned by `describe` to values. 
 
 ## Production settings
 
+Before deploying:
+
+- Set `APP_URL` to the public application URL and allow any additional MCP host explicitly.
+- When using a reverse proxy, trust only your actual proxies so HTTPS detection and per-IP limits use the correct request information.
+- Define `accessNovaMcp` for application-specific endpoint restrictions. If Nova relies on a VPN or Zero Trust layer, decide explicitly how MCP clients will satisfy equivalent access requirements.
+- Restrict token-tool visibility with `->canSeeWhen(...)` when appropriate; this controls the Nova tool, not MCP endpoint access.
+- Configure `nova-mcp.audit_channel` to use a persistent Laravel logging channel suitable for your deployment.
+
+
 ### Hosts, HTTPS and proxies
 
 The server uses Laravel MCP's stateless Streamable HTTP transport. Authenticated POST handles initialization, notifications, pings and tool calls; unsupported GET/SSE listening and DELETE/session termination return 405. Use HTTPS outside `local`/`testing`; configure your application's trusted proxy settings when TLS terminates at a proxy.
@@ -251,6 +260,20 @@ Exclude Authorization headers and the token-management response bodies from host
 
 Rotation invalidates the previous secret for subsequent requests immediately. It cannot cancel an already executing operation or a job Nova already queued. Token ability edits apply to subsequent requests. `actions` authorizes Nova actions independently of generic CRUD abilities: an action can have destructive or external side effects, subject to its Nova permissions.
 
+### Revoke tokens after account changes
+
+From trusted application code, revoke a user's MCP tokens after a password reset, deactivation, or another lifecycle event:
+
+```php
+use NovaMcp\NovaMcp;
+
+$count = NovaMcp::revokeTokensFor($user, 'password_reset');
+```
+
+The helper revokes currently unrevoked tokens for that user in the configured Nova MCP provider and returns the affected count. The optional reason is a short event code (lowercase letters, numbers, underscores, dots or hyphens; maximum 64 characters), not user input or sensitive text. It records a `token.revoked_bulk` audit event. Call it from your application's listener or service; the package does not install automatic account listeners. Revocation applies to subsequent requests and does not cancel work already running.
+
+A token does not retain permissions the user has lost: Nova authorization is evaluated again on subsequent requests.
+
 ## Updates and validation
 
 Send only the fields you want to change to `nova.update`. Omitted fields keep their stored values; an explicit `null` is still validated as a supplied value. Existing scalar values are available to Nova during validation, including cross-field rules. Passwords and stored file paths are not substituted for new password or upload inputs. Nova's controllers, authorization, validation hooks, field filling and save hooks remain in use.
@@ -259,7 +282,19 @@ Required unsupported fields are not silently ignored. An existing value can sati
 
 `nova.describe` includes `create_schema` and `update_schema`, alongside the existing field lists. These provide supported validation hints such as required creation inputs, lengths, numeric bounds, formats, options, help text and defaults. Update schemas allow omitted fields; `x-nova-required` describes a requirement on the resulting state. Custom and conditional rules remain server-side. Schemas describe the current request and record; Nova makes the final validation decision.
 
-Supported scalar defaults are applied when a creation or action field is omitted. Unambiguous boolean strings, numeric strings and integer select keys are normalized before Nova validates them. Ambiguous or lossy conversions are rejected.
+An omitted Boolean uses Nova's checkbox state during validation, including `falseValue(null)` and timestamp-backed true values. The stored value is not rewritten. Explicit `null` still goes through Nova's rules.
+
+`describe` also provides `create_blockers` and, when an ID is supplied, `update_blockers` alongside authorized write schemas. These list known required inputs that MCP cannot supply, for example:
+
+```json
+{"create_blockers":[{"field":"address","reason":"required_unsupported_field"}]}
+```
+
+These are best-effort diagnostics, not permission grants or a guarantee that an operation will fail or succeed. An empty list does not validate custom rules, hooks or conditional requirements. Nova excludes unauthorized fields from its ordinary field validation; any unavailable requirement reported by the package uses `_` instead of disclosing its name. Read-only tokens receive no write-blocker metadata.
+
+Each `nova.actions` entry includes a `schema` with required inputs and defaults, alongside `fields`. Action execution uses the same safe validation-error format and scalar coercion as resource writes. `x-nova-depends-on` lists dependencies that are also available writable fields; their stored values are never included. Common rule objects provide enum or server-validation hints. General dates and rules that cannot be translated accurately remain server-side hints.
+
+Supported scalar and collection defaults are applied when a creation or action field is omitted. Unambiguous boolean strings, numeric strings and integer select keys are normalized before Nova validates them. Ambiguous or lossy conversions are rejected.
 
 Tool errors contain JSON with a stable `code` and a `message`. Validation errors also include safe messages for available fields:
 
@@ -277,13 +312,17 @@ Other codes are `forbidden`, `unavailable` and `failed`. A validation entry name
 
 ## Field and relationship support
 
-Supported scalar fields include Text, Textarea, Email, URL, Slug, Select, Country, Timezone, Color, Markdown, Code, Number, Currency, Boolean, Date and DateTime. ID is read-only. Field visibility, context and readonly status are evaluated through Nova. Unknown/custom subclasses are excluded unless explicitly adapted; they do not inherit permission to write just because they extend Text.
+Supported scalar fields include Text, Textarea, Email, URL, Slug, Select, Country, Timezone, Color, Markdown, Code, Number, Currency, Boolean, Date and DateTime. Trix is writable when attachments are disabled. ID, Status and Badge are read-only. Heading and Line are omitted. Field visibility, context and readonly status are evaluated through Nova. Unknown/custom subclasses are excluded unless explicitly adapted; they do not inherit permission to write just because they extend Text.
+
+MultiSelect accepts an array of declared options without duplicates. BooleanGroup accepts an object of declared keys with JSON Boolean values. KeyValue accepts an object with scalar or null values. Each accepts at most 100 entries; KeyValue keys must be non-numeric strings of at most 100 characters; string values are limited to 1,000 characters. Use an `array` cast on the corresponding model attributes, as required by Nova. Send arrays/objects through MCP; the adapter handles Nova's internal JSON form encoding.
+
+KeyValue fields with restricted key editing, row addition or row deletion remain read-only through MCP. Trix fields with attachments enabled remain read-only. These restrictions require application-specific adapters if you need broader support.
 
 BelongsTo reads and writes require the `relationships` ability as well as the operation's ability. Related resources must be exposed, visible, tenant-scoped, and eligible under Nova's relatable query. Nova still performs its own relationship validation and filling.
 
 The relationships tool supports BelongsTo, HasOne, HasMany and BelongsToMany reads. Candidate discovery currently supports BelongsTo on an existing, updatable parent. Related rows and BelongsTo assignments are intersected with a fresh query that enforces the related model's global scopes and Nova index scope, even if an application relationship removes scopes. Related authorization and field callbacks run under the related resource's request context.
 
-Collection attachment/detachment, pivot writes, polymorphic writes, file uploads, repeaters, and force deletion are intentionally not exposed in this release. Unsupported fields are excluded, rather than silently treated as writable. Lenses must return an Eloquent query for the resource's model and table, selecting plain columns with real model IDs. Joins, unions, grouping, aggregates, expression/alias projections, alternate tables, and custom paginators are rejected because this adapter cannot safely authorize their transformed rows. Lens OR conditions remain constrained by the resource's scope. Queued actions retain Nova's normal queue behavior.
+BelongsToMany pivot attributes are never exposed by the relationship tool. Collection attachment/detachment, pivot writes, polymorphic writes, file uploads, repeaters, and force deletion are intentionally not exposed in this release. Unsupported fields are excluded, rather than silently treated as writable. Lenses must return an Eloquent query for the resource's model and table, selecting plain columns with real model IDs. Joins, unions, grouping, aggregates, expression/alias projections, alternate tables, and custom paginators are rejected because this adapter cannot safely authorize their transformed rows. Lens OR conditions remain constrained by the resource's scope. Queued actions retain Nova's normal queue behavior.
 
 For custom fields, register an adapter in a service provider:
 
