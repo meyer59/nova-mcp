@@ -12,10 +12,10 @@ Start with an application that already has a licensed Nova installation. **Larav
 
 ### 1. Install the package
 
-Install it from [Packagist](https://packagist.org/packages/nova-mcp/nova-mcp):
+Install it from [Packagist](https://packagist.org/packages/meyer59/nova-mcp):
 
 ```bash
-composer require nova-mcp/nova-mcp
+composer require meyer59/nova-mcp
 php artisan migrate
 ```
 

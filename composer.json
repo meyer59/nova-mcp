@@ -1,5 +1,5 @@
 {
-  "name": "nova-mcp/nova-mcp",
+  "name": "meyer59/nova-mcp",
   "description": "An MCP server for Laravel Nova that connects AI assistants to Nova resources with existing authorization and per-token permissions.",
   "type": "library",
   "license": "MIT",
