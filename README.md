@@ -4,7 +4,7 @@ A Laravel Nova package that connects AI assistants to your application through t
 
 **MCP follows the user's existing Nova permissions. A token can limit those permissions, but cannot add more.** All registered Nova resources are available by default; you can choose a smaller list.
 
-[Quick start](#quick-start) · [Connect a client](#connect-a-client) · [Explain your resources](#explain-your-resources-to-the-llm) · [Permissions](#permissions) · [Tokens](#token-management) · [Tools](#tools) · [Compatibility](#compatibility)
+[Quick start](#quick-start) · [Connect a client](#connect-a-client) · [Explain your resources](#explain-your-resources-to-the-llm) · [Permissions](#permissions) · [Tokens](#token-management) · [Tools](#tools) · [Action safety](#actions-and-sensitive-results) · [Compatibility](#compatibility)
 
 If Nova MCP is useful to you, please consider [giving it a star on GitHub](https://github.com/meyer59/nova-mcp). It helps others discover the package.
 
@@ -209,6 +209,14 @@ Keep tokens read-only unless the client needs actions. The token UI already defa
 Both lists match subclasses. Exclusion always wins; a non-array list exposes no actions. Restrictions apply to discovery and execution, including standalone actions. Excluded actions have the same unavailable error response as unknown action keys, and their visibility/execution authorization callbacks are skipped. Nova's normal policies and action authorization still apply to every exposed action.
 
 ### Control results
+
+If your Composer constraint still limits the package to 0.1.x, update it to allow the 0.2 series:
+
+```bash
+composer require "meyer59/nova-mcp:0.2.*"
+```
+
+A plain `composer update` keeps the existing version constraint. Add any desired action settings to your existing `config/nova-mcp.php`, using the [default config](config/nova-mcp.php) as a reference; you do not need to overwrite your published config.
 
 **Upgrade from v0.1.6 and earlier:** v0.2.0 changes the default `nova.run_action` result. Previously it returned Nova's response verbatim. It now uses `action_results => 'status'`, including when an older published config has no such key. Review consumers that expected redirects or custom response fields. After editing config, rebuild your application's configuration cache if you use one.
 
